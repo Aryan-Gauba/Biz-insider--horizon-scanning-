@@ -8,7 +8,8 @@ import TimelineView from './components/TimelineView';
 import GraphView from './components/GraphView';
 import './App.css';
 
-const EXPRESS_API = import.meta.env.VITE_EXPRESS_API || 'http://localhost:5000/api';
+const rawApi = import.meta.env.VITE_EXPRESS_API || 'http://localhost:5000/api';
+const EXPRESS_API = rawApi.replace(/\/+$/, '');
 
 export default function App() {
   return (
