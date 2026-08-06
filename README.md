@@ -70,3 +70,9 @@ The project is structured as 3 isolated Vercel deployments:
 <li>biz-insider-ai: Root Directory ai_services (Uses @vercel/python).
 <li>biz-insider-backend: Root Directory backend (Uses @vercel/node).
 <li>biz-insider-frontend: Root Directory frontend (Uses Vite static build).
+
+## Future Additions
+The following future additions could be made:
+<li>Making a Cron-Job logic to make the ingestion and processor scripts automatically at periodic intervals.
+<li>Personalizing the events intelligent system to detect what the user does and shows relevant news/events on the top.
+<li>For personalizing, adding an auth page for organizations or individuals to sign up/login.
