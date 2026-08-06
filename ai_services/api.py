@@ -1,5 +1,4 @@
 import os
-import requests
 from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -7,8 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from huggingface_hub import InferenceClient
 
-# Load environment variables
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -20,7 +19,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Enable CORS for local & production frontends
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,18 +27,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Hybrid Embedder Setup (Prefers sentence-transformers if installed locally, falls back to HF API)
+# Local Model Loader
 local_embedder = None
 try:
     from sentence_transformers import SentenceTransformer
     local_embedder = SentenceTransformer('all-MiniLM-L6-v2')
-    print("Loaded local SentenceTransformer successfully.")
-except Exception as e:
-    print(f"SentenceTransformer not loaded locally ({e}). Will use Hugging Face API.")
+    print("Loaded local SentenceTransformer model.")
+except Exception:
+    print("SentenceTransformer not installed locally. Using Hugging Face client.")
 
 
 def get_query_embedding(text: str) -> List[float]:
-    """Generates a 1D vector embedding for the search query."""
+    """Generates embedding using local model or Hugging Face InferenceClient."""
     # Priority A: Local Model
     if local_embedder is not None:
         raw_emb = local_embedder.encode(text)
@@ -51,47 +49,35 @@ def get_query_embedding(text: str) -> List[float]:
             arr = np.mean(arr, axis=0)
         return arr.tolist()
 
-    # Priority B: Hugging Face Serverless Inference API
+    # Priority B: Hugging Face Client (Uses updated HF router infrastructure)
     if not HF_TOKEN:
-        raise ValueError("HF_TOKEN environment variable is not set!")
+        raise ValueError("HF_TOKEN environment variable is missing in Vercel settings!")
 
-    url = "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-
-    response = requests.post(url, headers=headers, json={"inputs": text}, timeout=10)
+    client = InferenceClient(api_key=HF_TOKEN)
+    # Feature extraction call
+    response = client.feature_extraction(
+        text, 
+        model="sentence-transformers/all-MiniLM-L6-v2"
+    )
     
-    if response.status_code != 200:
-        raise RuntimeError(f"Hugging Face API returned error ({response.status_code}): {response.text}")
-
-    result = response.json()
-    arr = np.array(result)
-
-    # Flatten matrix to a 1D vector (384 floats)
+    arr = np.array(response)
     while arr.ndim > 1:
         arr = np.mean(arr, axis=0)
 
     return arr.tolist()
 
 
-def get_db():
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL environment variable is not set!")
-    return psycopg2.connect(DATABASE_URL)
-
-
 def cosine_similarity(v1, v2):
-    """Calculates cosine similarity with strict float32 casting for double precision[] arrays."""
+    """Calculates cosine similarity with strict float32 casting."""
     if v1 is None or v2 is None:
         return 0.0
         
     try:
-        # Convert Python list / double precision[] array to 1D float32 numpy arrays
         a = np.asarray(v1, dtype=np.float32).flatten()
         b = np.asarray(v2, dtype=np.float32).flatten()
         
-        # Guard against dimension mismatches
-        if a.shape != b.shape:
-            print(f"[Vector Dim Mismatch] Query shape: {a.shape}, DB shape: {b.shape}")
+        if a.shape[0] != b.shape[0]:
+            print(f"[DIMENSION MISMATCH] Query Vector: {a.shape[0]} dims | DB Vector: {b.shape[0]} dims")
             return 0.0
 
         norm_a = np.linalg.norm(a)
@@ -102,8 +88,14 @@ def cosine_similarity(v1, v2):
             
         return float(np.dot(a, b) / (norm_a * norm_b))
     except Exception as err:
-        print(f"[Cosine Similarity Calculation Error] {err}")
+        print(f"[Cosine Error] {err}")
         return 0.0
+
+
+def get_db():
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is not set!")
+    return psycopg2.connect(DATABASE_URL)
 
 
 @app.get("/")
@@ -203,7 +195,6 @@ def semantic_search(query: str, impact: Optional[str] = None, top_k: int = 10):
     conn.close()
 
     try:
-        # Generate query vector
         query_vector = get_query_embedding(query)
 
         scored_results = []
@@ -218,13 +209,11 @@ def semantic_search(query: str, impact: Optional[str] = None, top_k: int = 10):
 
             scored_results.append(rec)
 
-        # Sort descending by similarity score
         scored_results.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
         return {"query": query, "impact_filter": impact, "results": scored_results[:top_k]}
 
     except Exception as err:
-        print(f"[API ERROR] Search failed during vector matching: {err}")
-        # Safe fallback: assign default similarity score of 0 so frontend rendering won't fail
+        print(f"[API ERROR] Semantic search vector calculation failed: {err}")
         for rec in records:
             rec.pop("embedding", None)
             rec["similarity_score"] = 0.0
@@ -252,7 +241,7 @@ def get_timeline_data(days: int = 30):
         ORDER BY DATE(r.published_at) ASC;
     """
     cur.execute(sql, (days,))
-    records = cur.fetchall()
+    records = list(cur.fetchall())
     cur.close()
     conn.close()
     
