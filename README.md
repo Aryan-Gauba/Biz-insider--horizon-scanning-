@@ -5,7 +5,7 @@
 ![System Architecture](https://img.shields.io/badge/Architecture-Monorepo%20Serverless-blue)
 ![Frontend](https://img.shields.io/badge/Frontend-React%20%7C%20Vite%20%7C%20Tailwind-61DAFB)
 ![Backend](https://img.shields.io/badge/Backend-Node.js%20%7C%20Express-339933)
-![AI Engine](https://img.shields.io/badge/AI Engine-FastAPI%20%7C%20PyTorch%20%7C%20HuggingFace-FF6F00)
+![AI Engine](https://img.shields.io/badge/AI%20Engine-FastAPI%20%7C%20PyTorch%20%7C%20HuggingFace-FF6F00)
 ![Database](https://img.shields.io/badge/Database-PostgreSQL%20%7C%20NeonDB-4169E1)
 
 ---
