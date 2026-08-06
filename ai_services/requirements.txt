@@ -1,15 +1,22 @@
-# Web Framework & API Server
+# # Web Framework & API Server
+# fastapi
+# uvicorn
+
+# # Database & Drivers
+# psycopg2-binary
+
+# # Machine Learning & Vector Embeddings
+# sentence-transformers
+# numpy
+
+# # HTTP Requests & Utilities
+# requests
+# python-dotenv
+# python-dateutil
+
 fastapi
 uvicorn
-
-# Database & Drivers
 psycopg2-binary
-
-# Machine Learning & Vector Embeddings
-sentence-transformers
-numpy
-
-# HTTP Requests & Utilities
-requests
 python-dotenv
-python-dateutil
+numpy
+requests
