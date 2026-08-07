@@ -5,7 +5,7 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <Link to="/" className="nav-brand">
-        Biz<span>Insider</span>
+        Corporate<span>IQ</span>
       </Link>
       <div className="nav-links">
         <NavLink to="/feed" className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}>

@@ -1,8 +1,209 @@
 
 
+# import hashlib
+# import logging
+# import os
+# from typing import List, Optional
+
+# import bs4
+# import feedparser
+# import psycopg2
+# import requests
+# from dotenv import load_dotenv
+# from psycopg2.extras import execute_values
+# from pydantic import BaseModel
+
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
+# # Load environment variables
+# load_dotenv()
+
+# DATABASE_URL = os.getenv("DATABASE_URL")
+# NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+
+# # Standardized Event Model
+# class RawEvent(BaseModel):
+#     content_hash: str
+#     source_name: str
+#     title: str
+#     summary: Optional[str] = None
+#     raw_content: Optional[str] = None
+#     source_url: str
+#     published_at: Optional[str] = None
+
+
+# # Hybrid Ingestion Engine
+# class HybridDataIngestor:
+#     def __init__(self, news_api_key: Optional[str] = None):
+#         self.news_api_key = news_api_key
+        
+#         # Background RSS Feeds (Macro & Policy scanning)
+#         self.rss_sources = [
+#             {
+#                 "name": "BBC Business & Policy",
+#                 "url": "http://feeds.bbci.co.uk/news/business/rss.xml"
+#             },
+#             {
+#                 "name": "Economic Times (Policy)",
+#                 "url": "https://economictimes.indiatimes.com/news/economy/policy/rssfeeds/13352306.cms"
+#             }
+#         ]
+        
+#         self.headers = {
+#             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+#         }
+
+#     @staticmethod
+#     def generate_hash(url: str, title: str) -> str:
+#         return hashlib.sha256(f"{url}{title}".encode('utf-8')).hexdigest()
+
+#     @staticmethod
+#     def clean_html(raw_html: str) -> str:
+#         if not raw_html:
+#             return ""
+#         soup = bs4.BeautifulSoup(raw_html, "html.parser")
+#         return soup.get_text(separator=" ", strip=True)
+
+#     def fetch_rss_feeds(self) -> List[RawEvent]:
+#         """Fetch general broad updates via background RSS feeds."""
+#         events = []
+#         for source in self.rss_sources:
+#             logging.info(f"[RSS] Fetching from: {source['name']}")
+#             try:
+#                 resp = requests.get(source["url"], headers=self.headers, timeout=10)
+#                 if resp.status_code != 200:
+#                     logging.warning(f"HTTP {resp.status_code} for {source['name']}")
+#                     continue
+
+#                 parsed = feedparser.parse(resp.content)
+#                 for entry in parsed.entries:
+#                     title = entry.get("title", "").strip()
+#                     link = entry.get("link", "").strip()
+#                     summary = self.clean_html(entry.get("summary", entry.get("description", "")))
+#                     pub_date = entry.get("published", entry.get("updated", None))
+
+#                     if not title or not link:
+#                         continue
+
+#                     events.append(
+#                         RawEvent(
+#                             content_hash=self.generate_hash(link, title),
+#                             source_name=source["name"],
+#                             title=title,
+#                             summary=summary,
+#                             raw_content=summary,
+#                             source_url=link,
+#                             published_at=pub_date
+#                         )
+#                     )
+#             except Exception as e:
+#                 logging.error(f"Failed to ingest RSS from {source['name']}: {str(e)}")
+        
+#         return events
+
+#     def fetch_company_news_api(self, company_name: str) -> List[RawEvent]:
+#         """Queries NewsAPI for specific company policy/business news."""
+#         if not self.news_api_key:
+#             logging.warning("NewsAPI key not provided. Skipping API search.")
+#             return []
+
+#         logging.info(f"[API] Searching NewsAPI for targeted entity: {company_name}")
+#         query = f'"{company_name}" AND (policy OR regulation OR market OR economy OR expansion)'
+#         url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=en&apiKey={self.news_api_key}"
+        
+#         events = []
+#         try:
+#             response = requests.get(url, timeout=10)
+#             if response.status_code == 200:
+#                 data = response.json()
+#                 articles = data.get("articles", [])
+#                 logging.info(f"[API] Found {len(articles)} articles for '{company_name}'")
+                
+#                 for art in articles:
+#                     title = art.get("title", "").strip()
+#                     link = art.get("url", "").strip()
+#                     if not title or not link:
+#                         continue
+
+#                     events.append(
+#                         RawEvent(
+#                             content_hash=self.generate_hash(link, title),
+#                             source_name=f"NewsAPI ({art.get('source', {}).get('name', 'Unknown')})",
+#                             title=title,
+#                             summary=art.get("description", ""),
+#                             raw_content=art.get("content", ""),
+#                             source_url=link,
+#                             published_at=art.get("publishedAt")
+#                         )
+#                     )
+#             else:
+#                 logging.error(f"NewsAPI error code {response.status_code}: {response.text}")
+#         except Exception as e:
+#             logging.error(f"NewsAPI fetch error: {str(e)}")
+
+#         return events
+
+#     def run_hybrid_pipeline(self, target_company: Optional[str] = None) -> List[RawEvent]:
+#         all_events = []
+        
+#         # 1. Fetch general background policy/news from RSS
+#         rss_events = self.fetch_rss_feeds()
+#         all_events.extend(rss_events)
+
+#         # 2. Fetch targeted API data if company provided
+#         if target_company:
+#             api_events = self.fetch_company_news_api(target_company)
+#             all_events.extend(api_events)
+
+#         logging.info(f"Total hybrid events retrieved: {len(all_events)}")
+#         return all_events
+
+
+# # Persistence Engine
+# def save_events_to_db(events: List[RawEvent]):
+#     if not events:
+#         logging.info("No events to save.")
+#         return
+
+#     if not DATABASE_URL:
+#         logging.error("DATABASE_URL environment variable is missing!")
+#         return
+
+#     query = """
+#         INSERT INTO raw_events (content_hash, source_name, title, summary, raw_content, source_url, published_at)
+#         VALUES %s
+#         ON CONFLICT (content_hash) DO NOTHING;
+#     """
+    
+#     records = [
+#         (e.content_hash, e.source_name, e.title, e.summary, e.raw_content, e.source_url, e.published_at)
+#         for e in events
+#     ]
+
+#     try:
+#         conn = psycopg2.connect(DATABASE_URL)
+#         cur = conn.cursor()
+#         execute_values(cur, query, records)
+#         conn.commit()
+        
+#         logging.info(f"Database Sync Complete! Inserted {cur.rowcount} new records.")
+#         cur.close()
+#         conn.close()
+#     except Exception as e:
+#         logging.error(f"Database error: {str(e)}")
+
+
+# if __name__ == "__main__":
+#     ingestor = HybridDataIngestor(news_api_key=NEWS_API_KEY)
+    
+#     # Run pipeline for general news & specific targets
+#     fetched_data = ingestor.run_hybrid_pipeline(target_company="Reliance Industries")
+#     save_events_to_db(fetched_data)
+
 import hashlib
 import logging
 import os
+import time
 from typing import List, Optional
 
 import bs4
@@ -15,13 +216,11 @@ from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# Load environment variables
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
-# Standardized Event Model
 class RawEvent(BaseModel):
     content_hash: str
     source_name: str
@@ -32,25 +231,32 @@ class RawEvent(BaseModel):
     published_at: Optional[str] = None
 
 
-# Hybrid Ingestion Engine
 class HybridDataIngestor:
     def __init__(self, news_api_key: Optional[str] = None):
         self.news_api_key = news_api_key
         
-        # Background RSS Feeds (Macro & Policy scanning)
+        # Robust RSS Source Network (Macro, Policy, Markets & Tech)
         self.rss_sources = [
-            {
-                "name": "BBC Business & Policy",
-                "url": "http://feeds.bbci.co.uk/news/business/rss.xml"
-            },
-            {
-                "name": "Economic Times (Policy)",
-                "url": "https://economictimes.indiatimes.com/news/economy/policy/rssfeeds/13352306.cms"
-            }
+            {"name": "BBC Business & Policy", "url": "http://feeds.bbci.co.uk/news/business/rss.xml"},
+            {"name": "Economic Times Policy", "url": "https://economictimes.indiatimes.com/news/economy/policy/rssfeeds/13352306.cms"},
+            {"name": "Economic Times Markets", "url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms"},
+            {"name": "Livemint Companies", "url": "https://www.livemint.com/rss/companies"},
+            {"name": "Business Standard Top Stories", "url": "https://www.business-standard.com/rss/home_page_top_stories.rss"},
+            {"name": "Financial Express Economy", "url": "https://www.financialexpress.com/market/feed/"},
+            {"name": "Moneycontrol Markets", "url": "https://www.moneycontrol.com/rss/MCtopnews.xml"}
         ]
         
+        # Target list of major entities (NIFTY 50 key players + Global Tech)
+        self.target_entities = [
+            "Reliance Industries", "Tata Consultancy Services", "HDFC Bank", "Infosys",
+            "ICICI Bank", "Bharti Airtel", "State Bank of India", "Larsen & Toubro",
+            "Tata Motors", "Adani Enterprises", "ITC", "Hindustan Unilever",
+            "Bajaj Finance", "Maruti Suzuki", "Wipro", "HCLTech",
+            "Google", "Microsoft", "Apple", "NVIDIA"
+        ]
+
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
     @staticmethod
@@ -65,14 +271,12 @@ class HybridDataIngestor:
         return soup.get_text(separator=" ", strip=True)
 
     def fetch_rss_feeds(self) -> List[RawEvent]:
-        """Fetch general broad updates via background RSS feeds."""
         events = []
         for source in self.rss_sources:
-            logging.info(f"[RSS] Fetching from: {source['name']}")
+            logging.info(f"[RSS] Scanning: {source['name']}")
             try:
-                resp = requests.get(source["url"], headers=self.headers, timeout=10)
+                resp = requests.get(source["url"], headers=self.headers, timeout=8)
                 if resp.status_code != 200:
-                    logging.warning(f"HTTP {resp.status_code} for {source['name']}")
                     continue
 
                 parsed = feedparser.parse(resp.content)
@@ -97,19 +301,17 @@ class HybridDataIngestor:
                         )
                     )
             except Exception as e:
-                logging.error(f"Failed to ingest RSS from {source['name']}: {str(e)}")
+                logging.error(f"[RSS Error] {source['name']}: {str(e)}")
         
         return events
 
-    def fetch_company_news_api(self, company_name: str) -> List[RawEvent]:
-        """Queries NewsAPI for specific company policy/business news."""
+    def fetch_company_news_api(self, query_term: str) -> List[RawEvent]:
         if not self.news_api_key:
-            logging.warning("NewsAPI key not provided. Skipping API search.")
             return []
 
-        logging.info(f"[API] Searching NewsAPI for targeted entity: {company_name}")
-        query = f'"{company_name}" AND (policy OR regulation OR market OR economy OR expansion)'
-        url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&language=en&apiKey={self.news_api_key}"
+        logging.info(f"[NewsAPI] Searching query: {query_term}")
+        query = f'"{query_term}" AND (policy OR regulation OR earnings OR market OR expansion)'
+        url = f"https://newsapi.org/v2/everything?q={query}&sortBy=publishedAt&pageSize=15&language=en&apiKey={self.news_api_key}"
         
         events = []
         try:
@@ -117,18 +319,17 @@ class HybridDataIngestor:
             if response.status_code == 200:
                 data = response.json()
                 articles = data.get("articles", [])
-                logging.info(f"[API] Found {len(articles)} articles for '{company_name}'")
                 
                 for art in articles:
                     title = art.get("title", "").strip()
                     link = art.get("url", "").strip()
-                    if not title or not link:
+                    if not title or not link or title == "[Removed]":
                         continue
 
                     events.append(
                         RawEvent(
                             content_hash=self.generate_hash(link, title),
-                            source_name=f"NewsAPI ({art.get('source', {}).get('name', 'Unknown')})",
+                            source_name=f"NewsAPI ({art.get('source', {}).get('name', 'Media')})",
                             title=title,
                             summary=art.get("description", ""),
                             raw_content=art.get("content", ""),
@@ -136,30 +337,31 @@ class HybridDataIngestor:
                             published_at=art.get("publishedAt")
                         )
                     )
-            else:
-                logging.error(f"NewsAPI error code {response.status_code}: {response.text}")
+            elif response.status_code == 429:
+                logging.warning("[NewsAPI] Rate limit hit.")
         except Exception as e:
-            logging.error(f"NewsAPI fetch error: {str(e)}")
+            logging.error(f"[NewsAPI Error] Query '{query_term}': {str(e)}")
 
         return events
 
-    def run_hybrid_pipeline(self, target_company: Optional[str] = None) -> List[RawEvent]:
+    def run_hybrid_pipeline(self) -> List[RawEvent]:
         all_events = []
         
-        # 1. Fetch general background policy/news from RSS
+        # 1. Broad RSS Feeds (Always executed)
         rss_events = self.fetch_rss_feeds()
         all_events.extend(rss_events)
 
-        # 2. Fetch targeted API data if company provided
-        if target_company:
-            api_events = self.fetch_company_news_api(target_company)
-            all_events.extend(api_events)
+        # 2. Iterative NewsAPI Target Scan (Rotates through entities)
+        if self.news_api_key:
+            for entity in self.target_entities[:6]:  # Batch scan top 6 per run to respect API limits
+                company_events = self.fetch_company_news_api(entity)
+                all_events.extend(company_events)
+                time.sleep(0.5)
 
-        logging.info(f"Total hybrid events retrieved: {len(all_events)}")
+        logging.info(f"Total ingested raw events: {len(all_events)}")
         return all_events
 
 
-# Persistence Engine
 def save_events_to_db(events: List[RawEvent]):
     if not events:
         logging.info("No events to save.")
@@ -186,16 +388,14 @@ def save_events_to_db(events: List[RawEvent]):
         execute_values(cur, query, records)
         conn.commit()
         
-        logging.info(f"Database Sync Complete! Inserted {cur.rowcount} new records.")
+        logging.info(f"Database Sync Complete! Inserted new unique raw events.")
         cur.close()
         conn.close()
     except Exception as e:
-        logging.error(f"Database error: {str(e)}")
+        logging.error(f"Database insertion error: {str(e)}")
 
 
 if __name__ == "__main__":
     ingestor = HybridDataIngestor(news_api_key=NEWS_API_KEY)
-    
-    # Run pipeline for general news & specific targets
-    fetched_data = ingestor.run_hybrid_pipeline(target_company="Reliance Industries")
+    fetched_data = ingestor.run_hybrid_pipeline()
     save_events_to_db(fetched_data)
